@@ -1,3 +1,5 @@
+%default total
+
 --------------------------------------------------------------------------------
 -- Checking the validity of a passport.
 --------------------------------------------------------------------------------
@@ -62,6 +64,7 @@ delete : List String -> List String -> List String
 delete mandatory [key, value] with (isValid key value)
   | True  = delete key mandatory
   | False = mandatory
+delete mandatory _ = mandatory
 
 -- Take a String representing a passport in the file and check if it is valid.
 checkValidity : String -> Bool
@@ -96,7 +99,7 @@ fromTextToParagraphs : List String -> List String
 fromTextToParagraphs = map (foldr (++) "") . split ((==) [] . unpack . trim)
 
 -- Read a text into a list of lines.
-readLines : File -> IO (Either FileError (List String))
+partial readLines : File -> IO (Either FileError (List String))
 readLines handle = do
   case !(fEOF handle) of
     True  => pure (Right [])
@@ -112,7 +115,7 @@ readLines handle = do
 --------------------------------------------------------------------------------
 
 -- Computation for a path
-compute : String -> IO ()
+partial compute : String -> IO ()
 compute path = do
   Right handle <- openFile path Read | Left _ => putStrLn "Can't open"
   Right text <- readLines handle | Left _ => putStrLn "Error during the read"
@@ -120,5 +123,5 @@ compute path = do
   printLn $ countValidPassports $ fromTextToParagraphs text
 
 -- Main computation
-main : IO ()
+partial main : IO ()
 main = compute "data"

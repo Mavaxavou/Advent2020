@@ -1,6 +1,8 @@
 import Data.Fin
 import Data.Vect
 
+%default total
+
 
 
 --------------------------------------------------------------------------------
@@ -27,7 +29,7 @@ finToNatToFinIsOk : (m : Nat) -> finToNat (natToFin m) = m
 finToNatToFinIsOk Z = Refl
 finToNatToFinIsOk (S m) = rewrite finToNatToFinIsOk m in Refl
 
--- Decode a list of steps (of bits) into a natural. It proves that this result
+-- Decode a list of steps (or bits) into a natural. It proves that this result
 -- is less than 2^n with n the number of steps.
 decode : Vect (S n) Step -> Fin $ pow 2 (S n)
 decode (Lower :: []) = 0
@@ -97,9 +99,8 @@ filterNothing (Just  v :: xs) = v :: filterNothing xs
 findMissing : List Nat -> Maybe Nat
 findMissing [] = Nothing
 findMissing (x :: []) = Nothing
-findMissing (x1 :: x2 :: xs) with (isLTE x1 x2)
-  | Yes prf = if x2 - x1 == 2 then Just (x1 + 1) else findMissing (x2 :: xs)
-  | No cntr = Nothing
+findMissing (x1 :: x2 :: xs) =
+  if x1 + 1 /= x2 then Just (x1 + 1) else findMissing (x2 :: xs)
 
 
 
@@ -108,7 +109,7 @@ findMissing (x1 :: x2 :: xs) with (isLTE x1 x2)
 --------------------------------------------------------------------------------
 
 -- Read the lines of a file.
-readLines : File -> IO (Either FileError (List String))
+partial readLines : File -> IO (Either FileError (List String))
 readLines handle = do
   case !(fEOF handle) of
     True  => pure (Right [])
@@ -118,13 +119,13 @@ readLines handle = do
       pure $ Right (line :: text)
 
 -- Extract all the data of the input file.
-readFile : File -> IO (Either FileError (List (Vect 7 Step, Vect 3 Step)))
+partial readFile : File -> IO (Either FileError (List (Vect 7 Step, Vect 3 Step)))
 readFile handle = do
   Right lines <- readLines handle | Left error => pure (Left error)
   pure $ Right $ filterNothing $ map (getData . unpack . trim) lines
 
 -- Main computation.
-main : IO ()
+partial main : IO ()
 main = do
   Right handle <- openFile "data" Read | Left error => printLn error
   Right infos <- readFile handle | Left error => printLn error

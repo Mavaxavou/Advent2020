@@ -10,6 +10,7 @@ data Map : (m, n : Nat) -> Type where
   M : (map : Vect n (Vect m Kind)) -> Map m n
 
 
+
 Show Kind where
   show Empty = "."
   show Tree  = "#"

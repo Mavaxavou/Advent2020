@@ -1,78 +1,93 @@
-import Data.Fin
-import Data.Vect
 %default total
 
 
 
-Show (Fin n) where
-  show = show . finToNat
+data Index : Nat -> Type where
+  ZInd : Index n
+  SInd : Index n -> Index (S n)
 
-Sized (Fin n) where
-  size FZ = 0
-  size (FS n) = S (size n)
+weaken : Index n -> Index (S n)
+weaken ZInd = ZInd
+weaken (SInd n) = SInd $ weaken n
 
-Uninhabited (FS x = FZ) where
+weakenLTE : Index n -> LTE n m -> Index m
+
+indexToNat : Index n -> Nat
+indexToNat ZInd = Z
+indexToNat (SInd f) = S $ indexToNat f
+
+natToIndex : (n : Nat) -> Index n
+natToIndex Z = ZInd
+natToIndex (S n) = SInd $ natToIndex n
+
+injectiveSInd : SInd x = SInd y -> x = y
+injectiveSInd Refl = Refl
+
+Show (Index n) where
+  show = show . indexToNat
+
+Eq (Index n) where
+  ZInd == ZInd = True
+  ZInd == _ = False
+  _ == ZInd = False
+  (SInd x) == (SInd y) = x == y
+
+Uninhabited (ZInd = SInd y) where
   uninhabited Refl impossible
 
-fromNat : (n : Nat) -> Fin (S n)
-fromNat Z = FZ
-fromNat (S n) = FS $ fromNat n
+Uninhabited (SInd x = ZInd) where
+  uninhabited Refl impossible
 
-biggestIn : (n : Nat) -> Not (n = 0) -> Fin n
-biggestIn Z prf = void $ prf Refl
-biggestIn (S Z) prf = FZ
-biggestIn (S $ S n) prf = FS $ biggestIn (S n) SIsNotZ
+DecEq (Index n) where
+  decEq ZInd ZInd = Yes Refl
+  decEq ZInd (SInd y) = No absurd
+  decEq (SInd x) ZInd = No absurd
+  decEq (SInd x) (SInd y) with (decEq x y)
+    | Yes eq = Yes (cong eq)
+    | No neq = No (neq . injectiveSInd)
 
-weakenSize : (x : Fin n) -> size (weaken x) = size x
-weakenSize FZ = Refl
-weakenSize (FS x) = cong $ weakenSize x
+Sized (Index n) where
+  size = indexToNat
 
-fsInjective : FS x = FS y -> x = y
-fsInjective Refl = Refl
-
-
-
-interface Finite (t : Type) where
-  cardinal  : Nat
-  nonEmpty  : Not (cardinal = Z)
-  index     : t -> Fin cardinal
-  element   : Fin cardinal -> Maybe t
-  injective : (a, b : t) -> index a = index b -> a = b
-
-Step : Sized t => (x : t) -> Type -> Type
-Step {t} x res = (y : t) -> Smaller y x -> res
-
-overFinite : Finite t => (acc -> t -> acc) -> acc -> acc
-overFinite {t} f =
-  sizeRec (step lteRefl) (biggestIn (cardinal {t}) (nonEmpty {t})) where
-  apply : acc -> Fin (cardinal {t}) -> acc
-  apply res n with (element {t} n)
-    | Just elt = f res elt
-    | Nothing  = res
-  step : LTE n (cardinal {t}) -> (x : Fin n) -> Step x (acc -> acc) -> acc -> acc
-  step lte {n = Z} x rec res = absurd x
-  step lte {n = S n} FZ rec res = apply res (weakenLTE lte FZ)
-  step lte {n = S n} (FS x) rec res =
-    apply (rec (weaken x) (rewrite weakenSize x in lteRefl) res) $
-    weakenLTE lte (FS x)
+foldIndex : (acc -> Index n -> acc) -> acc -> Index n -> acc
+foldIndex f acc ZInd = f acc ZInd
+foldIndex f acc (SInd x) = foldIndex (\acc => f acc . weaken) (f acc $ SInd x) x
 
 
 
-Set : (t : Type) -> Finite t => Type
-Set t = (elt : t) -> Bool
+interface FinSet (t : Type) where
+  maxIndex  : Nat
+  getIndex  : t -> Index maxIndex
+  element   : Index maxIndex -> t
+  bijection : (x : t) -> element (getIndex x) = x
 
-empty : Finite t => Set t
-empty _ = False
+cardinal : FinSet t => Nat
+cardinal {t} = S $ maxIndex {t}
 
-foldSet : Finite t => (acc -> t -> acc) -> acc -> Set t -> acc
-foldSet {t} f init set = overFinite {t} g init where
-  g acc elt = if set elt then f acc elt else acc
-
-Finite t => Sized (Set t) where
-  size = foldSet (\acc, _ => S acc) Z
+foldFinSet : FinSet t => (acc -> t -> acc) -> acc -> acc
+foldFinSet {t} f init =
+  foldIndex (\acc => f acc . element {t}) init $ natToIndex $ maxIndex {t}
 
 
 
+data Treated : (t : Type) -> Type where
+  Set : FinSet t => (Index $ maxIndex {t} -> Bool) -> Treated t
+
+empty : FinSet t => Treated t
+empty = Set (\_ => False)
+
+mem : FinSet t => t -> Treated t -> Bool
+mem x (Set set) = set $ getIndex x
+
+mark : FinSet t => t -> Treated t -> Treated t
+mark x (Set set) = Set (\y => getIndex x == y || set y)
+
+FinSet t => Sized (Treated t) where
+  size {t} trt = foldFinSet (\acc, elt => if mem elt trt then S acc else acc) Z
+
+
+
+{-
 data Label : Type -> Type where
   Disconnected : Label t
   Directed : t -> Label t
@@ -80,23 +95,28 @@ data Label : Type -> Type where
 Edge : (node, t : Type) -> Type
 Edge node t = (node, t, node)
 
-Graph : (node : Type) -> Finite node => (t : Type) -> Type
+Graph : (node : Type) -> FinSet node => (t : Type) -> Type
 Graph node t = (beg, end : node) -> Label t
 
-addEdge : (Eq n, Finite n) => Graph n t -> Edge n t -> Graph n t
+addEdge : FinSet node => Graph node t -> Edge node t -> Graph node t
 addEdge edges (start, label, stop) x y =
-  if start == x && stop == y then Directed label else edges x y
+  if getIndex start == getIndex x && getIndex stop == getIndex y
+  then Directed label
+  else edges x y
 
-fold : Finite n => (start : n) -> (acc -> Edge n t -> acc) -> acc -> Graph n t -> acc
+fold : FinSet n => (start : n) -> (acc -> Edge n t -> acc) -> acc -> Graph n t -> acc
 fold {n} start f init edges =
   let rec = sizeRec step (empty {t = n}) in rec start init where
-    step treated rec beg res with (treated beg)
-      | True  = res
-      | False = overFinite g res where
-        g : acc -> n -> acc
-        g res stop with (edges start stop)
-          | Disconnected   = res
-          | Directed label = f res (start, label, stop)
+    step trt rec beg res with (decEq (trt beg) False)
+      | No beenTreated = res
+      | Yes notTreated = foldFinSet f' res where
+        continue : n -> acc -> acc
+        continue = rec (mark beg trt) (markNewSmaller beg trt notTreated)
+        f' : acc -> n -> acc
+        f' res end with (edges beg end)
+          | Disconnected = continue end res
+          | Directed lbl = continue end (f res (beg, lbl, end))
+
 
 
 
@@ -156,3 +176,4 @@ readLine str with (splitOnWord "contain" str)
     let contained = filterNothing $ map readContained $ split (== ',') inside in
     Just (container, contained)
   | _ = Nothing
+-}
